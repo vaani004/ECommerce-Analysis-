@@ -1,147 +1,119 @@
-import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
-import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.chart.*;
-import javafx.scene.control.Button;
-import javafx.scene.control.Tooltip;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
-import java.sql.*;
+import java.util.HashMap;
+import java.util.Map;
 
 public class ChartsPage {
 
     public void showCharts() {
+
         Stage stage = new Stage();
-        VBox layout = new VBox(20);
-        layout.setPadding(new Insets(15));
 
-        layout.getChildren().addAll(
-                createTopProductsChart(),
-                createCategoryPieChart(),
-                createMonthlySalesLineChart()
-        );
+        ObservableList<String[]> data = Dashboard.globalData;
 
-        Button close = new Button("Close");
-        close.setOnAction(e -> stage.close());
-        layout.getChildren().add(close);
+        Map<String, Double> categorySales = new HashMap<>();
 
-        Scene scene = new Scene(layout, 900, 800);
-        scene.getStylesheets().add("chart-style.css"); // Optional for CSS theme
-        stage.setTitle("E-Commerce Sales Charts");
+        for (String[] row : data) {
+            String category = row[4];
+            double sales = Double.parseDouble(row[8]);
+
+            categorySales.put(category,
+                    categorySales.getOrDefault(category, 0.0) + sales);
+        }
+
+        // 📊 BAR CHART
+        CategoryAxis xAxis = new CategoryAxis();
+        NumberAxis yAxis = new NumberAxis();
+
+        BarChart<String, Number> barChart = new BarChart<>(xAxis, yAxis);
+        barChart.setTitle("Sales by Category");
+
+        XYChart.Series<String, Number> series = new XYChart.Series<>();
+
+        for (String cat : categorySales.keySet()) {
+            series.getData().add(new XYChart.Data<>(cat, categorySales.get(cat)));
+        }
+
+        barChart.getData().add(series);
+
+        // 🥧 PIE CHART
+        PieChart pieChart = new PieChart();
+        pieChart.setTitle("Category Distribution");
+
+        for (String cat : categorySales.keySet()) {
+            pieChart.getData().add(new PieChart.Data(cat, categorySales.get(cat)));
+        }
+
+        pieChart.setLabelsVisible(true);
+
+        // 📈 LINE CHART
+        CategoryAxis xLine = new CategoryAxis();
+        NumberAxis yLine = new NumberAxis();
+
+        LineChart<String, Number> lineChart = new LineChart<>(xLine, yLine);
+        lineChart.setTitle("Sales Trend");
+
+        XYChart.Series<String, Number> lineSeries = new XYChart.Series<>();
+
+        int i = 1;
+        for (String[] row : data) {
+            lineSeries.getData().add(
+                    new XYChart.Data<>("Order " + i, Double.parseDouble(row[8]))
+            );
+            i++;
+        }
+
+        lineChart.getData().add(lineSeries);
+
+        // 🌑 ROOT LAYOUT
+        VBox layout = new VBox(20, barChart, pieChart, lineChart);
+        layout.setStyle("-fx-background-color: #121212; -fx-padding: 20;");
+
+        Scene scene = new Scene(layout, 900, 650);
         stage.setScene(scene);
+
+        // 🔥 FIX ALL WHITE BACKGROUND ISSUES
+        scene.getRoot().setStyle("""
+            -fx-background-color: #121212;
+        """);
+
+        // Charts background fix
+        barChart.setStyle("-fx-background-color: transparent;");
+        pieChart.setStyle("-fx-background-color: transparent;");
+        lineChart.setStyle("-fx-background-color: transparent;");
+
+        // Axis text
+        xAxis.setStyle("-fx-tick-label-fill: white;");
+        yAxis.setStyle("-fx-tick-label-fill: white;");
+        xLine.setStyle("-fx-tick-label-fill: white;");
+        yLine.setStyle("-fx-tick-label-fill: white;");
+
+        // Titles
+        barChart.setTitle("Sales by Category");
+        pieChart.setTitle("Category Distribution");
+        lineChart.setTitle("Sales Trend");
+
+        // 🔥 COLORS (CLEAN & PREMIUM)
+        barChart.lookupAll(".default-color0.chart-bar").forEach(n ->
+                n.setStyle("-fx-bar-fill: #e01cc0;"));
+
+        lineChart.lookupAll(".chart-series-line").forEach(n ->
+                n.setStyle("-fx-stroke: #e01cc0;"));
+
+        lineChart.lookupAll(".chart-line-symbol").forEach(n ->
+                n.setStyle("-fx-background-color: #1890da, #0d0aac;"));
+
+        pieChart.lookupAll(".default-color0.chart-pie").forEach(n ->
+                n.setStyle("-fx-pie-color: #0f47dfe2;"));
+
+        pieChart.lookupAll(".default-color1.chart-pie").forEach(n ->
+                n.setStyle("-fx-pie-color: rgb(243, 5, 176) ;"));
+
+        stage.setTitle("Analytics Dashboard");
         stage.show();
     }
-
-    // 1. BarChart: Top 5 Products
-    private BarChart<String, Number> createTopProductsChart() {
-        CategoryAxis xAxis = new CategoryAxis();
-        NumberAxis yAxis = new NumberAxis();
-        BarChart<String, Number> chart = new BarChart<>(xAxis, yAxis);
-        chart.setTitle("Top 5 Selling Products");
-        xAxis.setLabel("Product");
-        yAxis.setLabel("Total Sales");
-
-        chart.setCategoryGap(20);
-        chart.setBarGap(10);
-        chart.setStyle("-fx-bar-fill: #2196f3;");
-
-        XYChart.Series<String, Number> series = new XYChart.Series<>();
-        series.setName("Sales");
-
-        try (Connection conn = Database.getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT product_name, SUM(sales) as total FROM orders GROUP BY product_name ORDER BY total DESC LIMIT 5")) {
-
-            while (rs.next()) {
-                String name = rs.getString("product_name");
-                double value = rs.getDouble("total");
-
-                XYChart.Data<String, Number> data = new XYChart.Data<>(name, value);
-                series.getData().add(data);
-
-                Tooltip.install(data.getNode(), new Tooltip(name + ": ₹" + String.format("%.2f", value)));
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-
-        chart.getData().add(series);
-        return chart;
-    }
-
-    // 2. PieChart: Sales by Category
-    private PieChart createCategoryPieChart() {
-        ObservableList<PieChart.Data> pieData = FXCollections.observableArrayList();
-
-        try (Connection conn = Database.getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT category, SUM(sales) as total FROM orders GROUP BY category")) {
-
-            while (rs.next()) {
-                pieData.add(new PieChart.Data(rs.getString("category"), rs.getDouble("total")));
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-
-        PieChart chart = new PieChart(pieData);
-        chart.setTitle("Sales by Category");
-        chart.setLabelsVisible(true);
-        chart.setClockwise(true);
-        chart.setStartAngle(90);
-
-        for (PieChart.Data data : chart.getData()) {
-            Tooltip tooltip = new Tooltip(data.getName() + ": ₹" + String.format("%.2f", data.getPieValue()));
-            Tooltip.install(data.getNode(), tooltip);
-        }
-
-        return chart;
-    }
-
-    // 3. LineChart: Monthly Sales Trend
-    private LineChart<String, Number> createMonthlySalesLineChart() {
-        CategoryAxis xAxis = new CategoryAxis();
-        NumberAxis yAxis = new NumberAxis();
-        LineChart<String, Number> chart = new LineChart<>(xAxis, yAxis);
-        chart.setTitle("Monthly Sales Trend");
-        xAxis.setLabel("Month-Year");
-        yAxis.setLabel("Total Sales");
-
-        chart.setCreateSymbols(true);
-        chart.setLegendVisible(true);
-
-        XYChart.Series<String, Number> series = new XYChart.Series<>();
-        series.setName("Sales");
-
-        String query = "SELECT strftime('%m-%Y', order_date) as month_year, SUM(sales) as total " +
-                       "FROM orders GROUP BY month_year ORDER BY order_date";
-
-        try (Connection conn = Database.getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(query)) {
-
-            while (rs.next()) {
-                String date = rs.getString("month_year");
-                double total = rs.getDouble("total");
-
-                XYChart.Data<String, Number> data = new XYChart.Data<>(date, total);
-                series.getData().add(data);
-
-                data.nodeProperty().addListener((obs, oldNode, newNode) -> {
-                    if (newNode != null) {
-                        Tooltip.install(newNode, new Tooltip(date + ": ₹" + String.format("%.2f", total)));
-                    }
-                });
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-
-        chart.getData().add(series);
-        return chart;
-    }
 }
-
-

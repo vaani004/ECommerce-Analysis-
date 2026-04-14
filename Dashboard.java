@@ -2,249 +2,152 @@ import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.stage.FileChooser;
 
 import java.io.*;
-import java.sql.*;
-import java.util.ArrayList;
-import java.util.List;
 
 public class Dashboard {
 
+    public static ObservableList<String[]> globalData = FXCollections.observableArrayList();
+
     private VBox layout;
-    private Label totalSalesLabel = new Label("Total Sales: ₹0.00");
-    private Label totalProfitLabel = new Label("Total Profit: ₹0.00");
-    private Label totalOrdersLabel = new Label("Total Orders: 0");
+    private Label totalSalesLabel = new Label("₹0.00");
+    private Label totalProfitLabel = new Label("₹0.00");
+    private Label totalOrdersLabel = new Label("0");
     private TableView<String[]> tableView = new TableView<>();
-    private List<String[]> fullData = new ArrayList<>(); // Store all loaded data
-    private TextField searchField;
 
     public Dashboard() {
-        Database.initializeDatabase();
 
-        layout = new VBox(15);
+        layout = new VBox(20);
         layout.setPadding(new Insets(20));
-        layout.setStyle("-fx-background-color: #f9f9f9;");
+        layout.setStyle("-fx-background-color: #121212;");
 
-        // Buttons
+        // 🔹 Buttons
         Button uploadButton = new Button("Upload CSV");
-        uploadButton.setStyle("-fx-background-color: #28a745; -fx-text-fill: white;");
+        uploadButton.setStyle("-fx-background-color: #00c853; -fx-text-fill: white; -fx-background-radius: 8;");
         uploadButton.setOnAction(e -> handleFileUpload());
 
-        Button viewChartsBtn = new Button("View Charts");
-        viewChartsBtn.setStyle("-fx-background-color: #0078d4; -fx-text-fill: white;");
-        viewChartsBtn.setOnAction(e -> new ChartsPage().showCharts());
+        Button chartBtn = new Button("View Charts");
+        chartBtn.setStyle("-fx-background-color: #2962ff; -fx-text-fill: white; -fx-background-radius: 8;");
+        chartBtn.setOnAction(e -> new ChartsPage().showCharts());
 
-        Button exportButton = new Button("Export to CSV");
-        exportButton.setStyle("-fx-background-color: #6c757d; -fx-text-fill: white;");
-        exportButton.setOnAction(e -> exportTableDataToCSV());
+        HBox buttonBox = new HBox(10, uploadButton, chartBtn);
 
-        // KPI
-        HBox kpiBox = new HBox(30, totalSalesLabel, totalProfitLabel, totalOrdersLabel);
+        // 🔹 KPI Cards
+        HBox kpiBox = new HBox(20,
+                createCard("Total Sales", totalSalesLabel),
+                createCard("Total Profit", totalProfitLabel),
+                createCard("Total Orders", totalOrdersLabel)
+        );
         kpiBox.setAlignment(Pos.CENTER);
-        totalSalesLabel.setStyle("-fx-font-size: 16;");
-        totalProfitLabel.setStyle("-fx-font-size: 16;");
-        totalOrdersLabel.setStyle("-fx-font-size: 16;");
 
-        // Filters
-        ComboBox<String> regionFilter = new ComboBox<>();
-        regionFilter.getItems().addAll("All", "East", "West", "Central", "South", "North");
-        regionFilter.setValue("All");
+        // 🔹 Table Style
+        tableView.setStyle("""
+            -fx-background-color: #1e1e1e;
+            -fx-control-inner-background: #1e1e1e;
+            -fx-table-cell-border-color: #2c2c2c;
+            -fx-text-fill: white;
+        """);
 
-        DatePicker startDatePicker = new DatePicker();
-        DatePicker endDatePicker = new DatePicker();
-
-        Button applyFilterBtn = new Button("Apply Filter");
-        applyFilterBtn.setStyle("-fx-background-color: #ff9800; -fx-text-fill: white;");
-        applyFilterBtn.setOnAction(e -> {
-            String region = regionFilter.getValue();
-            String start = (startDatePicker.getValue() != null) ? startDatePicker.getValue().toString() : null;
-            String end = (endDatePicker.getValue() != null) ? endDatePicker.getValue().toString() : null;
-            loadFilteredData(region, start, end);
-        });
-
-        HBox filterBox = new HBox(10, new Label("Region:"), regionFilter,
-                new Label("Start:"), startDatePicker,
-                new Label("End:"), endDatePicker,
-                applyFilterBtn);
-        filterBox.setAlignment(Pos.CENTER);
-
-        // Search field
-        searchField = new TextField();
-        searchField.setPromptText("Search...");
-        searchField.setPrefWidth(300);
-        searchField.textProperty().addListener((obs, oldText, newText) -> applySearchFilter(newText));
-
-        layout.getChildren().addAll(uploadButton, viewChartsBtn, exportButton, kpiBox, filterBox, searchField, new Separator(), tableView);
+        layout.getChildren().addAll(buttonBox, kpiBox, tableView);
     }
 
     public VBox getView() {
         return layout;
     }
 
+    // 📂 Upload CSV
     private void handleFileUpload() {
         FileChooser fileChooser = new FileChooser();
-        fileChooser.setTitle("Select Order CSV");
         File file = fileChooser.showOpenDialog(null);
 
         if (file != null) {
-            importCSV(file);
-            updateKPI();
-            loadTableData();
+            loadCSV(file);
         }
     }
 
-    private void importCSV(File file) {
-        try (BufferedReader reader = new BufferedReader(new FileReader(file));
-             Connection conn = Database.getConnection()) {
+    // 🔥 Load CSV
+    private void loadCSV(File file) {
+        try {
+            BufferedReader br = new BufferedReader(new FileReader(file));
 
-            String line;
-            reader.readLine(); // skip header
+            tableView.getColumns().clear();
+            tableView.getItems().clear();
 
-            String sql = "INSERT INTO orders (order_id, order_date, customer_name, region, category, sub_category, product_name, quantity, sales, profit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-            PreparedStatement pstmt = conn.prepareStatement(sql);
+            String headerLine = br.readLine();
+            if (headerLine == null) return;
 
-            while ((line = reader.readLine()) != null) {
-                String[] data = line.split(",");
-                if (data.length < 10) continue;
+            String[] headers = headerLine.split(",");
 
-                pstmt.setString(1, data[0]);
-                pstmt.setString(2, data[1]);
-                pstmt.setString(3, data[2]);
-                pstmt.setString(4, data[3]);
-                pstmt.setString(5, data[4]);
-                pstmt.setString(6, data[5]);
-                pstmt.setString(7, data[6]);
-                pstmt.setInt(8, Integer.parseInt(data[7]));
-                pstmt.setDouble(9, Double.parseDouble(data[8]));
-                pstmt.setDouble(10, Double.parseDouble(data[9]));
-                pstmt.addBatch();
+            for (int i = 0; i < headers.length; i++) {
+                final int colIndex = i;
+
+                TableColumn<String[], String> column = new TableColumn<>(headers[i]);
+                column.setCellValueFactory(data ->
+                        new javafx.beans.property.SimpleStringProperty(
+                                colIndex < data.getValue().length ? data.getValue()[colIndex] : ""
+                        )
+                );
+
+                tableView.getColumns().add(column);
             }
 
-            pstmt.executeBatch();
+            ObservableList<String[]> data = FXCollections.observableArrayList();
+
+            String line;
+            double totalSales = 0;
+            double totalProfit = 0;
+            int totalOrders = 0;
+
+            while ((line = br.readLine()) != null) {
+
+                String[] values = line.split(",");
+
+                if (values.length < 10) continue;
+
+                data.add(values);
+                totalOrders++;
+
+                try {
+                    totalSales += Double.parseDouble(values[8].trim());
+                    totalProfit += Double.parseDouble(values[9].trim());
+                } catch (Exception ignored) {}
+            }
+
+            tableView.setItems(data);
+            globalData = data;
+
+            totalSalesLabel.setText("₹" + String.format("%.2f", totalSales));
+            totalProfitLabel.setText("₹" + String.format("%.2f", totalProfit));
+            totalOrdersLabel.setText(String.valueOf(totalOrders));
 
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    private void updateKPI() {
-        try (Connection conn = Database.getConnection();
-             Statement stmt = conn.createStatement()) {
+    // 🎨 Premium Cards
+    private VBox createCard(String title, Label valueLabel) {
 
-            ResultSet rs1 = stmt.executeQuery("SELECT SUM(sales) FROM orders");
-            totalSalesLabel.setText("Total Sales: ₹" + String.format("%.2f", rs1.getDouble(1)));
+        Label titleLabel = new Label(title);
+        titleLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #aaaaaa;");
 
-            ResultSet rs2 = stmt.executeQuery("SELECT SUM(profit) FROM orders");
-            totalProfitLabel.setText("Total Profit: ₹" + String.format("%.2f", rs2.getDouble(1)));
+        valueLabel.setStyle("-fx-font-size: 22px; -fx-font-weight: bold; -fx-text-fill: #00ff99;");
 
-            ResultSet rs3 = stmt.executeQuery("SELECT COUNT(*) FROM orders");
-            totalOrdersLabel.setText("Total Orders: " + rs3.getInt(1));
+        VBox card = new VBox(8, titleLabel, valueLabel);
+        card.setPadding(new Insets(15));
+        card.setPrefWidth(200);
+        card.setAlignment(Pos.CENTER);
 
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-    }
+        card.setStyle("""
+            -fx-background-color: #1e1e1e;
+            -fx-border-color: #2c2c2c;
+            -fx-border-radius: 15;
+            -fx-background-radius: 15;
+        """);
 
-    private void loadTableData() {
-        loadFilteredData("All", null, null);
-    }
-
-    private void loadFilteredData(String region, String startDate, String endDate) {
-        tableView.getItems().clear();
-        tableView.getColumns().clear();
-        fullData.clear();
-
-        String query = "SELECT * FROM orders WHERE 1=1";
-        if (!region.equals("All")) {
-            query += " AND region = '" + region + "'";
-        }
-        if (startDate != null && endDate != null) {
-            query += " AND order_date BETWEEN '" + startDate + "' AND '" + endDate + "'";
-        }
-
-        try (Connection conn = Database.getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(query)) {
-
-            int columnCount = rs.getMetaData().getColumnCount();
-
-            for (int i = 1; i <= columnCount; i++) {
-                final int colIndex = i - 1;
-                TableColumn<String[], String> col = new TableColumn<>(rs.getMetaData().getColumnName(i));
-                col.setCellValueFactory(data -> new javafx.beans.property.SimpleStringProperty(data.getValue()[colIndex]));
-                tableView.getColumns().add(col);
-            }
-
-            while (rs.next()) {
-                String[] row = new String[columnCount];
-                for (int i = 1; i <= columnCount; i++) {
-                    row[i - 1] = rs.getString(i);
-                }
-                fullData.add(row); // Save full data
-            }
-
-            applySearchFilter(searchField.getText());
-
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void applySearchFilter(String keyword) {
-        ObservableList<String[]> filteredData = FXCollections.observableArrayList();
-
-        for (String[] row : fullData) {
-            for (String cell : row) {
-                if (cell != null && cell.toLowerCase().contains(keyword.toLowerCase())) {
-                    filteredData.add(row);
-                    break;
-                }
-            }
-        }
-
-        tableView.setItems(filteredData);
-    }
-
-    private void exportTableDataToCSV() {
-        FileChooser fileChooser = new FileChooser();
-        fileChooser.setTitle("Save CSV");
-        fileChooser.setInitialFileName("exported_orders.csv");
-        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("CSV Files", "*.csv"));
-        File file = fileChooser.showSaveDialog(null);
-
-        if (file != null) {
-            try (FileWriter writer = new FileWriter(file)) {
-                for (TableColumn<?, ?> col : tableView.getColumns()) {
-                    writer.write(col.getText() + ",");
-                }
-                writer.write("\n");
-
-                for (String[] row : tableView.getItems()) {
-                    for (String cell : row) {
-                        writer.write(cell + ",");
-                    }
-                    writer.write("\n");
-                }
-
-                showAlert("Success", "Exported successfully to: " + file.getName());
-
-            } catch (Exception e) {
-                e.printStackTrace();
-                showAlert("Error", "Export failed!");
-            }
-        }
-    }
-
-    private void showAlert(String title, String msg) {
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.setTitle(title);
-        alert.setHeaderText(null);
-        alert.setContentText(msg);
-        alert.showAndWait();
+        return card;
     }
 }
-
